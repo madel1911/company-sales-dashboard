@@ -15,13 +15,11 @@ if "username" not in st.session_state:
 
 def check_password(username, password):
     """Checks whether a password entered by the user is correct."""
-    
     # Check if the username exists and password matches using st.secrets
     if "passwords" in st.secrets and username in st.secrets["passwords"]:
         if st.secrets["passwords"][username] == password:
             role = st.secrets["roles"].get(username, "user") if "roles" in st.secrets else "user"
             return True, role
-            
     return False, None
 
 def login_page():
@@ -94,13 +92,187 @@ def load_data(filepath):
     except Exception as e:
         return None
 
+# ==========================================
+# الدوال الجديدة للصفحات الإضافية
+# ==========================================
+def customer_analysis_page(df):
+    st.title("تحليل العملاء")
+    
+    # 1. البحث عن عميل محدد
+    st.subheader("🔍 البحث ببيانات العميل")
+    customer_list = df['CUSTOMER'].dropna().unique()
+    selected_cust = st.selectbox("اختر اسم العميل:", customer_list)
+    
+    # فلترة البيانات للعميل المختار
+    cust_data = df[df['CUSTOMER'] == selected_cust]
+    
+    # ضمان أن المبيعات أرقام صحيحة لتجنب الأخطاء
+    if 'TOTAL SALES' in cust_data.columns:
+        cust_data['TOTAL SALES'] = pd.to_numeric(cust_data['TOTAL SALES'], errors='coerce').fillna(0)
+        total_sales = cust_data['TOTAL SALES'].sum()
+    else:
+        total_sales = 0
+        
+    if 'DELIVERED QUANTITY' in cust_data.columns:
+        cust_data['DELIVERED QUANTITY'] = pd.to_numeric(cust_data['DELIVERED QUANTITY'], errors='coerce').fillna(0)
+        total_qty = cust_data['DELIVERED QUANTITY'].sum()
+    else:
+        total_qty = 0
+    
+    # عرض إجماليات العميل
+    col1, col2 = st.columns(2)
+    col1.metric("إجمالي المبيعات", f"{total_sales:,.2f}")
+    col2.metric("إجمالي الكميات الموصلة", f"{total_qty:,.0f}")
+    
+    st.markdown("---")
+    
+    # 2. أعلى 10 عملاء
+    st.subheader("🏆 أعلى 10 عملاء (من حيث المبيعات)")
+    if 'TOTAL SALES' in df.columns:
+        df['TOTAL SALES'] = pd.to_numeric(df['TOTAL SALES'], errors='coerce').fillna(0)
+        top_10_customers = df.groupby('CUSTOMER')['TOTAL SALES'].sum().nlargest(10).reset_index()
+        st.dataframe(top_10_customers, use_container_width=True)
+        st.bar_chart(data=top_10_customers.set_index('CUSTOMER'))
+    else:
+        st.warning("العمود 'TOTAL SALES' غير موجود في البيانات.")
+
+def top_products_page(df):
+    st.title("تحليل المنتجات")
+    
+    # 1. أعلى 10 منتجات
+    st.subheader("📦 أعلى 10 منتجات (من حيث الكمية الموصلة)")
+    if 'DELIVERED QUANTITY' in df.columns and 'ITEM' in df.columns:
+        df["DELIVERED QUANTITY"] = pd.to_numeric(df["DELIVERED QUANTITY"], errors="coerce").fillna(0)
+        top_10_items = df.groupby(['ITEM', 'UNIT OF MEASURE'])['DELIVERED QUANTITY'].sum().nlargest(10).reset_index()
+        
+        # عرض الجدول
+        st.dataframe(top_10_items, use_container_width=True)
+        
+        # عرض الرسم البياني
+        chart_data = top_10_items[['ITEM', 'DELIVERED QUANTITY']].set_index('ITEM')
+        st.bar_chart(data=chart_data)
+        
+        st.markdown("---")
+        
+        # 2. تفاصيل العملاء لأعلى 10 منتجات
+        st.subheader("👥 تفاصيل العملاء لأكثر المنتجات طلباً")
+        top_items_names = top_10_items['ITEM'].tolist()
+        breakdown_df = df[df['ITEM'].isin(top_items_names)]
+        breakdown_table = breakdown_df.groupby(['ITEM', 'CUSTOMER'])['DELIVERED QUANTITY'].sum().reset_index()
+        
+        st.dataframe(breakdown_table, use_container_width=True)
+    else:
+        st.warning("تأكد من وجود أعمدة 'ITEM' و 'DELIVERED QUANTITY' في البيانات.")
+
+def dashboard_navigation(df):
+    """Handles the sidebar navigation and routes to the correct page."""
+    st.sidebar.divider()
+    st.sidebar.title("📌 القائمة الرئيسية")
+    page = st.sidebar.radio("اختر الصفحة:", ["التقرير الرئيسي", "تحليل العملاء", "تحليل المنتجات"])
+
+    # ==========================================
+    # الصفحة 1: التقرير الرئيسي (شغلك القديم المدمج هنا)
+    # ==========================================
+    if page == "التقرير الرئيسي":
+        st.sidebar.header("Filters")
+        
+        if "SUBCATEGORY" in df.columns:
+            # Get unique subcategories and drop missing strings
+            subcategories = df["SUBCATEGORY"].dropna().unique().tolist()
+            subcategories.sort()
+            
+            # Selectbox for filtering
+            selected_subcategory = st.sidebar.selectbox("Select a Subcategory", subcategories)
+            
+            # Filter dataframe based on selection
+            filtered_df = df[df["SUBCATEGORY"] == selected_subcategory]
+        else:
+            st.error("The column 'SUBCATEGORY' was not found in the uploaded data.")
+            return
+            
+        st.header(f"Results for: {selected_subcategory}")
+
+        # Optional view of raw data for current selection
+        with st.expander("View Raw Filtered Data"):
+            st.dataframe(filtered_df)
+
+        # --- SUMMARY VIEW ---
+        st.subheader("📝 Summary Table")
+        
+        # Ensure required columns are present
+        summary_cols = ["ITEM", "UNIT OF MEASURE", "DELIVERED QUANTITY", "CUSTOMER"]
+        missing_cols = [col for col in summary_cols if col not in filtered_df.columns]
+        
+        if missing_cols:
+            st.error(f"Missing required columns for summary view: {', '.join(missing_cols)}")
+        else:
+            # Ensure DELIVERED QUANTITY is numeric to prevent aggregation errors
+            filtered_df = filtered_df.copy()
+            filtered_df["DELIVERED QUANTITY"] = pd.to_numeric(filtered_df["DELIVERED QUANTITY"], errors="coerce").fillna(0)
+            
+            # Group by ITEM and UNIT OF MEASURE
+            summary_table = filtered_df.groupby(["ITEM", "UNIT OF MEASURE"]).agg(
+                Total_Delivered_Quantity=('DELIVERED QUANTITY', 'sum'),
+                Unique_Customers=('CUSTOMER', 'nunique')
+            ).reset_index()
+            
+            summary_table = summary_table.rename(columns={
+                "Total_Delivered_Quantity": "Total Delivered Quantity",
+                "Unique_Customers": "Number of Unique Customers"
+            })
+            
+            st.dataframe(summary_table, use_container_width=True, hide_index=True)
+
+        # --- DETAILED VIEW ---
+        st.subheader("🔍 Detailed View: Customer Breakdown")
+        
+        detailed_cols = ["ITEM", "CUSTOMER", "DELIVERED QUANTITY"]
+        missing_detail_cols = [col for col in detailed_cols if col not in filtered_df.columns]
+        
+        if missing_detail_cols:
+            st.error(f"Missing required columns for detailed view: {', '.join(missing_detail_cols)}")
+        else:
+            # Create a Pivot Table
+            detailed_table = pd.pivot_table(
+                filtered_df,
+                values='DELIVERED QUANTITY',
+                index=['ITEM', 'UNIT OF MEASURE'],
+                columns='CUSTOMER',
+                aggfunc='sum',
+                fill_value=0
+            )
+            
+            # Add a Total Quantity column summing across all customers
+            detailed_table['Total Quantity (إجمالي الكمية)'] = detailed_table.sum(axis=1)
+            
+            # Reset index to make ITEM and UNIT OF MEASURE regular columns again for Streamlit display
+            detailed_table = detailed_table.reset_index()
+            
+            st.dataframe(detailed_table, use_container_width=True, hide_index=True)
+
+    # ==========================================
+    # الصفحة 2: تحليل العملاء
+    # ==========================================
+    elif page == "تحليل العملاء":
+        customer_analysis_page(df)
+
+    # ==========================================
+    # الصفحة 3: تحليل المنتجات
+    # ==========================================
+    elif page == "تحليل المنتجات":
+        top_products_page(df)
+
 def main_dashboard():
-    """Displays the main analytics dashboard."""
+    """Displays the main analytics dashboard setup and loads data."""
     
     # Add company logo and update main title
     col1, col2 = st.columns([1, 4])
     with col1:
-        st.image("sollog.png", width=150)
+        # تأكد من وجود صورة اللوجو باسم sollog.png مرفوعة على GitHub
+        try:
+            st.image("sollog.png", width=150)
+        except:
+            pass # في حالة عدم العثور على الصورة يتجاهلها ولا يعطل الموقع
     with col2:
         st.title("📊 SOL Sales Dashboard")
         
@@ -126,82 +298,8 @@ def main_dashboard():
     # Strip any potential leading/trailing whitespaces in column names
     df.columns = df.columns.str.strip()
     
-    # --- UI & FILTERING ---
-    st.sidebar.header("Filters")
-    
-    if "SUBCATEGORY" in df.columns:
-        # Get unique subcategories and drop missing strings
-        subcategories = df["SUBCATEGORY"].dropna().unique().tolist()
-        subcategories.sort()
-        
-        # Selectbox for filtering
-        selected_subcategory = st.sidebar.selectbox("Select a Subcategory", subcategories)
-        
-        # Filter dataframe based on selection
-        filtered_df = df[df["SUBCATEGORY"] == selected_subcategory]
-    else:
-        st.error("The column 'SUBCATEGORY' was not found in the uploaded data.")
-        return
-        
-    st.header(f"Results for: {selected_subcategory}")
-
-    # Optional view of raw data for current selection
-    with st.expander("View Raw Filtered Data"):
-        st.dataframe(filtered_df)
-
-    # --- SUMMARY VIEW ---
-    st.subheader("📝 Summary Table")
-    
-    # Ensure required columns are present
-    summary_cols = ["ITEM", "UNIT OF MEASURE", "DELIVERED QUANTITY", "CUSTOMER"]
-    missing_cols = [col for col in summary_cols if col not in filtered_df.columns]
-    
-    if missing_cols:
-        st.error(f"Missing required columns for summary view: {', '.join(missing_cols)}")
-    else:
-        # Ensure DELIVERED QUANTITY is numeric to prevent aggregation errors
-        filtered_df = filtered_df.copy()
-        filtered_df["DELIVERED QUANTITY"] = pd.to_numeric(filtered_df["DELIVERED QUANTITY"], errors="coerce").fillna(0)
-        
-        # Group by ITEM and UNIT OF MEASURE
-        summary_table = filtered_df.groupby(["ITEM", "UNIT OF MEASURE"]).agg(
-            Total_Delivered_Quantity=('DELIVERED QUANTITY', 'sum'),
-            Unique_Customers=('CUSTOMER', 'nunique')
-        ).reset_index()
-        
-        summary_table = summary_table.rename(columns={
-            "Total_Delivered_Quantity": "Total Delivered Quantity",
-            "Unique_Customers": "Number of Unique Customers"
-        })
-        
-        st.dataframe(summary_table, use_container_width=True, hide_index=True)
-
-    # --- DETAILED VIEW ---
-    st.subheader("🔍 Detailed View: Customer Breakdown")
-    
-    detailed_cols = ["ITEM", "CUSTOMER", "DELIVERED QUANTITY"]
-    missing_detail_cols = [col for col in detailed_cols if col not in filtered_df.columns]
-    
-    if missing_detail_cols:
-        st.error(f"Missing required columns for detailed view: {', '.join(missing_detail_cols)}")
-    else:
-        # Create a Pivot Table
-        detailed_table = pd.pivot_table(
-            filtered_df,
-            values='DELIVERED QUANTITY',
-            index=['ITEM', 'UNIT OF MEASURE'],
-            columns='CUSTOMER',
-            aggfunc='sum',
-            fill_value=0
-        )
-        
-        # Add a Total Quantity column summing across all customers
-        detailed_table['Total Quantity (إجمالي الكمية)'] = detailed_table.sum(axis=1)
-        
-        # Reset index to make ITEM and UNIT OF MEASURE regular columns again for Streamlit display
-        detailed_table = detailed_table.reset_index()
-        
-        st.dataframe(detailed_table, use_container_width=True, hide_index=True)
+    # تشغيل نظام الصفحات المدمج
+    dashboard_navigation(df)
 
 
 # --- ROUTING & APP LOGIC ---
@@ -217,8 +315,6 @@ else:
     if st.sidebar.button("Logout"):
         logout()
         
-    st.sidebar.divider()
-    
     # Admin View
     if st.session_state["role"] == "admin":
         # Tabs let Admins upload data and also view the dashboard
