@@ -3,7 +3,7 @@ import pandas as pd
 import os
 
 # Set page configuration
-st.set_page_config(page_title="Secure Sales Dashboard", layout="wide")
+st.set_page_config(page_title="SOL Sales Dashboard", layout="wide")
 
 # Initialize session state for authentication
 if "authenticated" not in st.session_state:
@@ -96,7 +96,14 @@ def load_data(filepath):
 
 def main_dashboard():
     """Displays the main analytics dashboard."""
-    st.title("📊 Interactive Sales Dashboard")
+    
+    # Add company logo and update main title
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        st.image("sollog.png", width=150)
+    with col2:
+        st.title("📊 SOL Sales Dashboard")
+        
     st.write("This dashboard analyzes the latest sales data.")
     
     data_path = "current_data.xlsx"
