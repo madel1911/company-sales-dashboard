@@ -16,17 +16,12 @@ if "username" not in st.session_state:
 def check_password(username, password):
     """Checks whether a password entered by the user is correct."""
     
-    # Define specific credentials and roles
-    users = {
-        "adel": {"password": "adel4040", "role": "admin"},
-        "Karim": {"password": "Karim123", "role": "user"},
-        "hisham": {"password": "hisham123", "role": "user"}
-    }
-    
-    # Check if the username exists and password matches
-    if username in users and users[username]["password"] == password:
-        return True, users[username]["role"]
-        
+    # Check if the username exists and password matches using st.secrets
+    if "passwords" in st.secrets and username in st.secrets["passwords"]:
+        if st.secrets["passwords"][username] == password:
+            role = st.secrets["roles"].get(username, "user") if "roles" in st.secrets else "user"
+            return True, role
+            
     return False, None
 
 def login_page():
